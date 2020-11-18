@@ -40,6 +40,37 @@ import UIKit
 open class InputTextView: UITextView {
     
     // MARK: - Properties
+    open var partyKeyBoardIsOpen: Bool = false
+    open var keyboardIsOpen: Bool = false
+    
+    open override func becomeFirstResponder() -> Bool {
+        if(!self.canBecomeFirstResponder) { return false }
+        
+        if partyKeyBoardIsOpen {
+            UIView.animate(withDuration: 0.0, animations: {
+                super.becomeFirstResponder()
+            })
+        } else {
+            super.becomeFirstResponder()
+        }
+        keyboardIsOpen = true
+        return true
+    }
+    
+    open override func resignFirstResponder() -> Bool {
+        if(!self.canResignFirstResponder) { return false }
+        
+        if self.isFirstResponder {
+            UIView.animate(withDuration: 0.0, animations: {
+                super.resignFirstResponder()
+            })
+        } else {
+            super.resignFirstResponder()
+        }
+        
+        keyboardIsOpen = false
+        return true
+    }
     
     open override var text: String! {
         didSet {
