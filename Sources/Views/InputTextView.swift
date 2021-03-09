@@ -328,6 +328,47 @@ open class InputTextView: UITextView {
         postTextViewDidChangeNotification()
     }
     
+    open func pasteVideoInTextContainer(withThumbnailImage image: UIImage, videoURL: URL) {
+        // Add the new image as an NSTextAttachment
+        let attributedImageString = NSAttributedString(attachment: textAttachment(using: image))
+        
+        let isEmpty = attributedText.length == 0
+        
+        // Add a new line character before the image, this is what iMessage does
+        let newAttributedStingComponent = isEmpty ? NSMutableAttributedString(string: "") : NSMutableAttributedString(string: "\n")
+        newAttributedStingComponent.append(attributedImageString)
+        
+        // Add a new line character after the image, this is what iMessage does
+        newAttributedStingComponent.append(NSAttributedString(string: "\n"))
+        
+        // The attributes that should be applied to the new NSAttributedString to match the current attributes
+        let defaultTextColor: UIColor
+        if #available(iOS 13, *) {
+            defaultTextColor = .label
+        } else {
+            defaultTextColor = .black
+        }
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key.font: font ?? UIFont.preferredFont(forTextStyle: .body),
+            NSAttributedString.Key.foregroundColor: textColor ?? defaultTextColor,
+            NSAttributedString.Key.mediaAttachment: videoURL
+        ]
+        newAttributedStingComponent.addAttributes(attributes, range: NSRange(location: 0, length: newAttributedStingComponent.length))
+        
+        textStorage.beginEditing()
+        // Paste over selected text
+        textStorage.replaceCharacters(in: selectedRange, with: newAttributedStingComponent)
+        textStorage.endEditing()
+        
+        // Advance the range to the selected range plus the number of characters added
+        let location = selectedRange.location + (isEmpty ? 2 : 3)
+        selectedRange = NSRange(location: location, length: 0)
+        
+        // Broadcast a notification to recievers such as the MessageInputBar which will handle resizing
+        postTextViewDidChangeNotification()
+
+    }
+    
     /// Returns an NSTextAttachment the provided image that will fit inside the NSTextContainer
     ///
     /// - Parameter image: The image to create an attachment with
@@ -366,21 +407,30 @@ open class InputTextView: UITextView {
     /// Returns an array of components (either a String or UIImage) that makes up the textContainer in
     /// the order that they were typed
     ///
-    /// - Returns: An array of objects guaranteed to be of UIImage or String
+    /// - Returns: An array of objects guaranteed to be of UIImage, (UIImage, URL), or String
+    
     private func parseForComponents() -> [Any] {
         
         var components = [Any]()
-        var attachments = [(NSRange, UIImage)]()
+        var attachments = [(NSRange, UIImage, URL?)]()
         let length = attributedText.length
         let range = NSRange(location: 0, length: length)
         attributedText.enumerateAttribute(.attachment, in: range) { (object, range, _) in
             if let attachment = object as? NSTextAttachment {
                 if let image = attachment.image {
-                    attachments.append((range, image))
+                    if let url = attributedText.attributedSubstring(from: range).attributes(at: 0, effectiveRange: nil)[.mediaAttachment] as? URL {
+                        attachments.append((range, image, url))
+                    } else {
+                        attachments.append((range, image, nil))
+                    }
                 } else if let image = attachment.image(forBounds: attachment.bounds,
                                                        textContainer: nil,
                                                        characterIndex: range.location) {
-                    attachments.append((range,image))
+                    if let url = attributedText.attributedSubstring(from: range).attributes(at: 0, effectiveRange: nil)[.mediaAttachment] as? URL {
+                        attachments.append((range, image, url))
+                    } else {
+                        attachments.append((range, image, nil))
+                    }
                 }
             }
         }
@@ -394,7 +444,7 @@ open class InputTextView: UITextView {
         }
         else {
             attachments.forEach { (attachment) in
-                let (range, image) = attachment
+                let (range, image, mediaURL) = attachment
                 if curLocation < range.location {
                     let textRange = NSMakeRange(curLocation, range.location - curLocation)
                     let text = attributedText.attributedSubstring(from: textRange).string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -404,7 +454,11 @@ open class InputTextView: UITextView {
                 }
                 
                 curLocation = range.location + range.length
-                components.append(image)
+                if let validMediaURL = mediaURL {
+                    components.append((image, validMediaURL))
+                } else {
+                    components.append(image)
+                }
             }
             if curLocation < length - 1  {
                 let text = attributedText.attributedSubstring(from: NSMakeRange(curLocation, length - curLocation)).string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -437,3 +491,6 @@ open class InputTextView: UITextView {
     
 }
 
+extension NSAttributedString.Key {
+    static let mediaAttachment: NSAttributedString.Key = .init("media_attachment")
+}
